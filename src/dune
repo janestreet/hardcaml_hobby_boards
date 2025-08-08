@@ -1,0 +1,7 @@
+(library
+ (name hardcaml_hobby_boards)
+ (public_name hardcaml_hobby_boards)
+ (libraries base core_unix core.filename_base hardcaml hardcaml_axi parsexp
+   jane_rope simple_xml stdio)
+ (preprocess
+  (pps ppx_hardcaml ppx_jane ppx_rope)))
