@@ -258,6 +258,8 @@ module Ethernet = struct
     type 'a t =
       { txen : 'a [@rtlname "eth_txen"]
       ; txd : 'a [@bits 2] [@rtlname "eth_txd"]
+      ; rstn : 'a [@rtlname "eth_rstn"]
+      ; refclk : 'a [@rtlname "eth_refclk"]
       }
     [@@deriving hardcaml]
   end

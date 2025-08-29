@@ -180,6 +180,8 @@ module type Nexys_a7_100t = sig
       type 'a t =
         { txen : 'a
         ; txd : 'a
+        ; rstn : 'a
+        ; refclk : 'a
         }
       [@@deriving hardcaml]
     end

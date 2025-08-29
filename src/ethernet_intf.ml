@@ -21,7 +21,11 @@ module type Ethernet = sig
     end
 
     module O : sig
-      type 'a t = { axi_tx : 'a Axi32.Source.t } [@@deriving hardcaml]
+      type 'a t =
+        { axi_tx : 'a Axi32.Source.t
+        ; rx_error : 'a
+        }
+      [@@deriving hardcaml]
     end
 
     val create : Scope.t -> Interface.Create_fn(I)(O).t
@@ -45,6 +49,13 @@ module type Ethernet = sig
         (* Axi ready signal that is asserted when the ethernet TX FIFO is not full *)
         }
       [@@deriving hardcaml]
+    end
+
+    val crc_polynomial_802_3 : Bits.t
+
+    module Make_comb (C : Comb.S) : sig
+      val update_bit : polynomial:Bits.t -> crc:C.t -> C.t -> C.t
+      val update_bits : polynomial:Bits.t -> crc:C.t -> C.t -> C.t
     end
 
     val create : Scope.t -> Interface.Create_fn(I)(O).t

@@ -28,6 +28,10 @@ let nexys_a7_100t =
     ; ( "seven-segment-display"
       , nexys_a7_100t
           Hardcaml_hobby_boards_demos_nexys_a7_100t.Seven_segment_display.create )
+    ; ( "ethernet-rx"
+      , nexys_a7_100t Hardcaml_hobby_boards_demos_nexys_a7_100t.Ethernet_rx.create )
+    ; ( "ethernet-tx"
+      , nexys_a7_100t Hardcaml_hobby_boards_demos_nexys_a7_100t.Ethernet_tx.create )
     ; "snakes", nexys_a7_100t Hardcaml_hobby_boards_demos_nexys_a7_100t.Snakes.create
     ; "uart", nexys_a7_100t Hardcaml_hobby_boards_demos_nexys_a7_100t.Uart.create
     ; "vga", nexys_a7_100t Hardcaml_hobby_boards_demos_nexys_a7_100t.Vga.create

@@ -13,7 +13,7 @@ module Rx = struct
   let input_data_width = 2
   let word_size = Config.data_bits
   let word_bytes = word_size / 8
-  let preamble_sfd_bits = 64
+  let preamble_sfd_bits = Ethernet_types.preamble_sfd_bits
   let preamble_sfd_value = of_string "64'hd555_5555_5555_5555"
 
   module Var = Always.Variable
@@ -29,7 +29,11 @@ module Rx = struct
   end
 
   module O = struct
-    type 'a t = { axi_tx : 'a Axi32.Source.t } [@@deriving hardcaml]
+    type 'a t =
+      { axi_tx : 'a Axi32.Source.t
+      ; rx_error : 'a
+      }
+    [@@deriving hardcaml]
   end
 
   module States = struct
@@ -40,7 +44,7 @@ module Rx = struct
     [@@deriving sexp_of, enumerate, compare ~localize]
   end
 
-  let create scope ({ clocking; crsdv; rxerr = _; rxd } : _ I.t) =
+  let create scope ({ clocking; crsdv; rxerr; rxd } : _ I.t) =
     let spec = Types.Clocking.to_spec clocking in
     let%hw_var data_counter =
       Var.reg spec ~width:(Int.ceil_log2 (word_size / input_data_width))
@@ -73,6 +77,7 @@ module Rx = struct
         (sel_bottom data_buffer.value ~width:(word_size - 8) @: byte_buffer_next)
         data_buffer.value
     in
+    let rx_error = Var.wire ~default:gnd () in
     let axi_tx = Axi32.Source.Of_always.wire zero in
     let%hw.Always.State_machine state =
       Always.State_machine.create (module States) ~enable:vdd spec
@@ -80,18 +85,24 @@ module Rx = struct
     Always.(
       compile
         [ start_of_data <-- gnd
+        ; rx_error <-- gnd
         ; state.switch
             [ ( Idle
               , [ data_counter <-- zero 4
                 ; byte_counter <-- zero 2
                 ; preamble_sfd_buffer <-- zero preamble_sfd_bits
-                ; when_ start_of_frame [ state.set_next SFD ]
+                ; when_
+                    start_of_frame
+                    [ preamble_sfd_buffer <-- preamble_sfd_buffer_next
+                    ; state.set_next SFD
+                    ]
                 ] )
             ; ( SFD
               , [ preamble_sfd_buffer <-- preamble_sfd_buffer_next
                 ; when_
                     (preamble_sfd_buffer_next ==: preamble_sfd_value)
                     [ start_of_data <-- vdd; state.set_next Data ]
+                ; when_ rxerr [ rx_error <-- vdd; state.set_next Idle ]
                 ] )
             ; ( Data
               , [ start_of_data <-- start_of_data.value
@@ -126,10 +137,19 @@ module Rx = struct
                     ; axi_tx.tlast <-- vdd
                     ; state.set_next Idle
                     ]
+                ; when_
+                    rxerr
+                    [ axi_tx.tvalid <-- vdd
+                    ; axi_tx.tkeep <-- ones 4
+                    ; axi_tx.tlast <-- vdd
+                    ; axi_tx.tuser <-- vdd @: start_of_data.value
+                    ; rx_error <-- vdd
+                    ; state.set_next Idle
+                    ]
                 ] )
             ]
         ]);
-    { O.axi_tx = Axi32.Source.Of_always.value axi_tx }
+    { O.axi_tx = Axi32.Source.Of_always.value axi_tx; rx_error = rx_error.value }
   ;;
 
   let hierarchical ?instance scope inputs =
@@ -139,14 +159,14 @@ module Rx = struct
 end
 
 module Tx = struct
+  include Ethernet_types
+
   let output_data_width = 2
   let word_size = Config.data_bits
   let word_bytes = word_size / 8
-  let preamble_sfd_bits = 64
   let preamble_sfd_value = of_string "64'h5555_5555_5555_5554"
-  let fcs_bits = 32
   let fcs_cycles = fcs_bits / output_data_width
-  let ifg_cycles = 96 / output_data_width
+  let ifg_cycles = ifg_bits / output_data_width
 
   module Var = Always.Variable
 
@@ -179,23 +199,29 @@ module Tx = struct
 
   let crc_polynomial_802_3 = Bits.of_int_trunc ~width:32 0xEDB88320
 
-  let update_bit ~(polynomial : Bits.t) ~crc bit_in =
-    (* Add the incoming bit to the top bit of the current CRC. *)
-    let last_bit = lsb crc in
-    let add_bit = bit_in ^: last_bit in
-    (* Shift in a zero. *)
-    srl crc ~by:1
-    |> bits_msb
-    |> (* Add [add_bit] to every bit where the polynomial is nonzero. *)
-    List.map2_exn (Bits.bits_msb polynomial) ~f:(fun polynomial_bit crc_bit ->
-      if Bits.to_bool polynomial_bit then add_bit ^: crc_bit else crc_bit)
-    |> concat_msb
-  ;;
+  module Make_comb (C : Comb.S) = struct
+    open C
 
-  let update_bits ~(polynomial : Bits.t) ~crc bits_in =
-    List.fold (bits_lsb bits_in) ~init:crc ~f:(fun crc bit ->
-      update_bit ~polynomial ~crc bit)
-  ;;
+    let update_bit ~(polynomial : Bits.t) ~crc bit_in =
+      (* Add the incoming bit to the top bit of the current CRC. *)
+      let last_bit = lsb crc in
+      let add_bit = bit_in ^: last_bit in
+      (* Shift in a zero. *)
+      srl crc ~by:1
+      |> bits_msb
+      |> (* Add [add_bit] to every bit where the polynomial is nonzero. *)
+      List.map2_exn (Bits.bits_msb polynomial) ~f:(fun polynomial_bit crc_bit ->
+        if Bits.to_bool polynomial_bit then add_bit ^: crc_bit else crc_bit)
+      |> concat_msb
+    ;;
+
+    let update_bits ~(polynomial : Bits.t) ~crc bits_in =
+      List.fold (bits_lsb bits_in) ~init:crc ~f:(fun crc bit ->
+        update_bit ~polynomial ~crc bit)
+    ;;
+  end
+
+  module Crc = Make_comb (Signal)
 
   let create scope ({ clocking; data_stream } : _ I.t) =
     let spec = Types.Clocking.to_spec clocking in
@@ -213,17 +239,23 @@ module Tx = struct
     let read_enable = Var.wire ~default:gnd () in
     let ready = Var.reg spec ~width:1 in
     let start_of_frame = data_stream.tvalid &: lsb data_stream.tuser &: ready.value in
+    let data_stream_errorr = data_stream.tvalid &: msb data_stream.tuser &: ready.value in
     let data_fifo =
       Fifo.create
         ~capacity:64
         ~clock:clocking.clock
         ~clear:clocking.clear
         ~wr:(data_stream.tvalid &: ready.value)
-        ~d:(data_stream.tlast @: data_stream.tkeep @: data_stream.tdata)
+        ~d:
+          (data_stream_errorr
+           @: data_stream.tlast
+           @: data_stream.tkeep
+           @: data_stream.tdata)
         ~rd:read_enable.value
         ()
     in
-    let%hw last_data_word = msb data_fifo.q in
+    let%hw frame_error = msb data_fifo.q in
+    let%hw last_data_word = data_fifo.q.:[width data_fifo.q - 2, width data_fifo.q - 2] in
     let%hw keep = data_fifo.q.:[word_size + word_bytes - 1, word_size] in
     let%hw last_word_valid_bytes = leading_ones keep in
     let%hw last_word_valid_cycles =
@@ -271,11 +303,15 @@ module Tx = struct
                 ; data_out <-- sel_bottom data_buffer_next ~width:output_data_width
                 ; data_buffer <-- srl data_buffer_next ~by:output_data_width
                 ; data_counter <-- data_counter.value +:. 1
-                ; fcs_next
-                  <-- update_bits
-                        ~polynomial:crc_polynomial_802_3
-                        ~crc:fcs.value
-                        (sel_bottom data_buffer_next ~width:output_data_width)
+                ; (fcs_next
+                   <--
+                   let crc =
+                     Crc.update_bits
+                       ~polynomial:crc_polynomial_802_3
+                       ~crc:fcs.value
+                       (sel_bottom data_buffer_next ~width:output_data_width)
+                   in
+                   msbs crc @: mux2 frame_error ~:(lsb crc) (lsb crc))
                 ; fcs <-- fcs_next.value
                 ; when_
                     (all_bits_set data_counter.value)
