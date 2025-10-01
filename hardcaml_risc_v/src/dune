@@ -1,0 +1,7 @@
+(library
+ (name hardcaml_hobby_boards_hardcaml_risc_v)
+ (libraries core hardcaml hardcaml_axi hardcaml_circuits
+   hardcaml_hobby_boards hardcaml_io_controller hardcaml_io_framework
+   hardcaml_memory_controller hardcaml_risc_v hardcaml_risc_v_hart)
+ (preprocess
+  (pps ppx_jane ppx_hardcaml ppx_expect)))

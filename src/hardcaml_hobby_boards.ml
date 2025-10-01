@@ -12,6 +12,7 @@ module Seven_segment_display = Seven_segment_display
 module Uart = Uart
 module Uart_types = Uart_types
 module Udp_packet_decoder = Udp_packet_decoder
+module Udp_packet_decoder_intf = Udp_packet_decoder_intf
 module Udp_packet_generator = Udp_packet_generator
 module Udp_packet_stream = Udp_packet_stream
 module Utils = Utils

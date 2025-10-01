@@ -7,7 +7,11 @@ include struct
   module Board = Board
   module Utils = Utils
   module Nexys = Nexys_a7_100t
-  module Udp_packet_decoder = Udp_packet_decoder
+
+  module Udp_packet_decoder = Udp_packet_decoder.Make (struct
+      let filter_config = Udp_packet_decoder_intf.Filter_config.No_filter
+    end)
+
   module Ethernet = Ethernet
   module BUFR = Clock_utils.BUFR
 

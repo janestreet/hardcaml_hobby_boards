@@ -1,4 +1,5 @@
 open Base
+open! Core
 open Hardcaml
 open Signal
 open Ethernet_types
@@ -319,7 +320,12 @@ module Shift_in_data (X : Interface.S) = struct
 end
 
 module For_testing = struct
-  module Crc = Ethernet.Tx.Make_comb (Bits)
+  module Ethernet_tx = Ethernet.Tx.Make (struct
+      let max_packets = 4
+      let average_packet_size = 128
+    end)
+
+  module Crc = Ethernet_tx.Make_comb (Bits)
   open Bits
 
   let preamble_sfd_value = of_string "64'h5555_5555_5555_5557"
@@ -447,10 +453,9 @@ module For_testing = struct
   let create_packet_from_host
     ?(config : Bits.t Udp_packet_generator.Config.t option)
     ?protocol
-    ?dst_mac
     data
     =
-    create_packet_from_fpga ?config ?protocol ?dst_mac ~data () |> swap_addressing
+    create_packet_from_fpga ?config ?protocol ~data () |> swap_addressing
   ;;
 
   let update_axi_output_data
@@ -471,7 +476,13 @@ module For_testing = struct
     !output_data
   ;;
 
-  let check_tx_data ~output_data ~expected_data ?(rx_error = false) () =
+  let check_tx_data
+    ~output_data
+    ~expected_data
+    ?(rx_error = false)
+    ?(print_data_as_string = false)
+    ()
+    =
     let preamble_received = sel_top (concat_lsb output_data) ~width:preamble_sfd_bits in
     let fcs_received = sel_top (concat_msb output_data) ~width:fcs_bits in
     let data_received =
@@ -484,7 +495,7 @@ module For_testing = struct
     let byte_list = split_msb ~exact:true ~part_width:8 fcs_data in
     let l =
       List.fold byte_list ~init:(ones 32) ~f:(fun crc byte ->
-        Crc.update_bits ~polynomial:Ethernet.Tx.crc_polynomial_802_3 ~crc byte)
+        Crc.update_bits ~polynomial:Ethernet_tx.crc_polynomial_802_3 ~crc byte)
     in
     let expected_fcs = ~:l in
     if rx_error
@@ -492,7 +503,13 @@ module For_testing = struct
     else
       [%test_result: Bits.Hex.t]
         (preamble_received @: data_received @: fcs_received)
-        ~expect:(preamble_sfd_value @: expected_data @: expected_fcs)
+        ~expect:(preamble_sfd_value @: expected_data @: expected_fcs);
+    if print_data_as_string
+    then
+      List.iter byte_list ~f:(fun byte ->
+        let char = to_char byte in
+        printf "%c" (if Char.is_print char then char else '_'));
+    printf "\n"
   ;;
 
   let check_tx_packet
@@ -500,6 +517,7 @@ module For_testing = struct
     ~(packet : Bits.t Packet.t)
     ~loopback
     ?(rx_error = false)
+    ?(print_data_as_string = false)
     ()
     =
     let total_width =
@@ -511,6 +529,40 @@ module For_testing = struct
       ~output_data
       ~expected_data:(sel_top expected_packet_vector ~width:total_width)
       ~rx_error
+      ~print_data_as_string
       ()
+  ;;
+
+  let sim_preamble_sfd sim (inputs : _ Ethernet.Rx.I.t) =
+    let open Bits in
+    for _ = 0 to (preamble_sfd_bits / width !(inputs.rxd)) - 2 do
+      inputs.rxd := of_string "01";
+      inputs.crsdv := vdd;
+      Cyclesim.cycle sim
+    done;
+    inputs.rxd := of_string "11";
+    inputs.crsdv := vdd;
+    Cyclesim.cycle sim
+  ;;
+
+  let sim_packet sim ~packet (inputs : _ Ethernet.Rx.I.t) =
+    let all_inputs =
+      let packet = String.to_list packet in
+      let data =
+        List.map ~f:Char.to_int packet
+        |> List.map ~f:(fun input -> of_int_trunc ~width:8 input)
+        |> concat_lsb
+      in
+      split_lsb ~exact:true ~part_width:2 data
+    in
+    List.iter
+      ~f:(fun input ->
+        inputs.crsdv := vdd;
+        inputs.rxd := input;
+        Cyclesim.cycle sim)
+      all_inputs;
+    inputs.crsdv := gnd;
+    (* Wait some cycles for the writes to all finalize. *)
+    Cyclesim.cycle ~n:1000 sim
   ;;
 end

@@ -21,6 +21,11 @@ include struct
 
       let bufr_divide = "2"
     end)
+
+  module Ethernet_tx = Ethernet.Tx.Make (struct
+      let max_packets = 4
+      let average_packet_size = 128
+    end)
 end
 
 let generate_clear clock_50 reset_n =
@@ -98,9 +103,9 @@ let create () =
         vdd
         (mux2 (data_stream_axi.tvalid &: data_stream_axi.tlast) gnd sending_data_reg);
   let ethernet_tx =
-    Ethernet.Tx.create
+    Ethernet_tx.create
       scope
-      { Ethernet.Tx.I.clocking = { clock = clock_50; clear = clear_50 }
+      { Ethernet_tx.I.clocking = { clock = clock_50; clear = clear_50 }
       ; data_stream = data_stream_axi
       }
   in

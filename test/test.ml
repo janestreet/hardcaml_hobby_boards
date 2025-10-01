@@ -80,7 +80,7 @@ let%expect_test "sexp of circuit" =
     |}]
 ;;
 
-module _ = struct
+module%test Generated_hierarchy = struct
   module I = Types.Value (struct
       let port_name = "switches_i"
       let port_width = 16

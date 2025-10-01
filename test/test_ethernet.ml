@@ -5,25 +5,22 @@ open Hardcaml_waveterm
 include struct
   open Hardcaml_hobby_boards
   module Rx = Ethernet.Rx
-  module Tx = Ethernet.Tx
+
+  module Tx = Ethernet.Tx.Make (struct
+      let max_packets = 4
+      let average_packet_size = 128
+    end)
+
+  module Config = Ethernet.Config
   module Udp_packet_generator = Udp_packet_generator
-  module Udp_packet_decoder = Udp_packet_decoder
   module Udp_packet_stream = Udp_packet_stream
   include Ethernet_types
   include Ethernet_utils.For_testing
-end
 
-let sim_preamble_sfd sim (inputs : _ Rx.I.t) =
-  let open Bits in
-  for _ = 0 to (preamble_sfd_bits / width !(inputs.rxd)) - 2 do
-    inputs.rxd := of_string "01";
-    inputs.crsdv := vdd;
-    Cyclesim.cycle sim
-  done;
-  inputs.rxd := of_string "11";
-  inputs.crsdv := vdd;
-  Cyclesim.cycle sim
-;;
+  module Udp_packet_decoder = Udp_packet_decoder.Make (struct
+      let filter_config = Udp_packet_decoder_intf.Filter_config.No_filter
+    end)
+end
 
 let sim_frame sim (inputs : _ Rx.I.t) (outputs : _ Rx.O.t) data_width =
   let open Bits in
@@ -94,7 +91,7 @@ let%expect_test "test_rx_multiple_frames" =
     |}]
 ;;
 
-let sim_data sim (inputs : _ Tx.I.t) (outputs : _ Tx.O.t) data_width =
+let sim_data sim (inputs : _ Tx.I.t) (outputs : _ Tx.O.t) data_width ~with_data_gaps =
   let open Bits in
   let input_data_width = 32 in
   let byte_width = 8 in
@@ -130,9 +127,19 @@ let sim_data sim (inputs : _ Tx.I.t) (outputs : _ Tx.O.t) data_width =
     inputs.data_stream.tlast := of_bool (i = max_index);
     inputs.data_stream.tuser := gnd @: of_bool (i = 0);
     Cyclesim.cycle sim;
-    check_outputs ()
+    check_outputs ();
+    if with_data_gaps
+    then
+      for _ = 0 to Random.int_incl 10 30 do
+        inputs.data_stream.tvalid := gnd;
+        inputs.data_stream.tdata := zero input_data_width;
+        Cyclesim.cycle sim;
+        check_outputs ()
+      done
   done;
   inputs.data_stream.tvalid := gnd;
+  Cyclesim.cycle sim;
+  check_outputs ();
   Cyclesim.cycle sim;
   let timeout_count = ref 0 in
   let max_timeout_count =
@@ -150,7 +157,7 @@ let sim_data sim (inputs : _ Tx.I.t) (outputs : _ Tx.O.t) data_width =
   check_tx_data ~output_data:!output_data ~expected_data:data ()
 ;;
 
-let test_tx_waves (data_lengths : int list) =
+let test_tx_waves (data_lengths : int list) ~with_data_gaps =
   let module Sim = Cyclesim.With_interface (Tx.I) (Tx.O) in
   let open Bits in
   let scope = Scope.create ~flatten_design:true () in
@@ -161,17 +168,30 @@ let test_tx_waves (data_lengths : int list) =
   inputs.clocking.clear := vdd;
   inputs.data_stream.tvalid := gnd;
   Cyclesim.cycle sim;
-  List.iter data_lengths ~f:(fun data_width -> sim_data sim inputs outputs data_width);
+  List.iter data_lengths ~f:(fun data_width ->
+    sim_data sim inputs outputs data_width ~with_data_gaps);
   Cyclesim.cycle sim;
   waves
 ;;
 
-let expect_test_tx_waves data_lengths = ignore (test_tx_waves data_lengths : Waveform.t)
-let%expect_test "test_tx_single_frame" = expect_test_tx_waves [ 64 * 8 ]
-let%expect_test "test_tx_tkeep_frames" = expect_test_tx_waves [ 50 * 8 ]
+let expect_test_tx_waves data_lengths ~with_data_gaps =
+  ignore (test_tx_waves data_lengths ~with_data_gaps : Waveform.t)
+;;
+
+let%expect_test "test_tx_single_frame" =
+  expect_test_tx_waves [ 64 * 8 ] ~with_data_gaps:false
+;;
+
+let%expect_test "test_tx_tkeep_frames" =
+  expect_test_tx_waves [ 50 * 8 ] ~with_data_gaps:false
+;;
 
 let%expect_test "test_multiple_frames" =
-  expect_test_tx_waves [ 64 * 8; 78 * 8; 128 * 8; 223 * 8 ]
+  expect_test_tx_waves [ 64 * 8; 78 * 8; 128 * 8; 223 * 8 ] ~with_data_gaps:false
+;;
+
+let%expect_test "test_multiple_frames_with_data_gaps " =
+  expect_test_tx_waves [ 64 * 8; 78 * 8; 128 * 8; 223 * 8 ] ~with_data_gaps:true
 ;;
 
 let test_udp_packet_generator =
@@ -197,6 +217,7 @@ let test_udp_packet_generator =
     + Udp.sum_of_port_widths
     + 240
   in
+  let axi_word_bytes = Config.data_bits / 8 in
   let wait_counter_width = 19 in
   Udp_packet_generator.Config.iter2 inputs.config config ~f:( := );
   inputs.clocking.clear := vdd;
@@ -207,7 +228,10 @@ let test_udp_packet_generator =
   for _ = 0 to 10 do
     let output_data = ref [] in
     for
-      _ = 0 to max_wait_count + ((preamble_sfd_bits + udp_packet_size + fcs_bits) / 2)
+      _ = 0
+      to max_wait_count
+         + (udp_packet_size / 8 / axi_word_bytes)
+         + ((preamble_sfd_bits + udp_packet_size + fcs_bits) / 2)
     do
       Cyclesim.cycle sim;
       if to_bool !(outputs.txen)

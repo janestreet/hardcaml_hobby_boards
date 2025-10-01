@@ -6,10 +6,16 @@ include struct
   open Hardcaml_hobby_boards
   include Ethernet_types
   include Ethernet_utils.For_testing
-  module Udp_packet_decoder = Udp_packet_decoder
   module Axi = Ethernet.Axi32
 
-  let word_size = 32
+  module Udp_packet_decoder = Udp_packet_decoder.Make (struct
+      let filter_config =
+        Udp_packet_decoder_intf.Filter_config.Destination_mac_filter
+          (Signal.of_bits get_config.fpga_mac)
+      ;;
+    end)
+
+  let word_size = Axi.Source.port_widths.tdata
 end
 
 let sim_packet
@@ -77,17 +83,34 @@ let test_rx_waves ?(with_data_gaps = false) () =
   let waves, sim = Waveform.create sim in
   let inputs = Cyclesim.inputs sim in
   let outputs = Cyclesim.outputs sim in
-  let udp_packet_1 = create_packet_from_host (of_string "32'hAAAA_AAAA") in
+  let udp_packet_1 =
+    create_packet_from_host ~config:get_config (of_string "32'hAAAA_AAAA")
+  in
   let non_udp_packet =
     create_packet_from_host
+      ~config:get_config
       ~protocol:(of_int_trunc ~width:Ipv4.port_widths.protocol tcp_protocol)
       (of_string "32'hAAAA_AAAA")
   in
-  let udp_packet_2 = create_packet_from_host (of_string "48'hF0F0_F0F0_F0F0") in
+  let udp_packet_2 =
+    create_packet_from_host ~config:get_config (of_string "48'hF0F0_F0F0_F0F0")
+  in
   let udp_packet_3 =
+    create_packet_from_host
+      ~config:get_config
+      (of_string "128'hBBBB_4444_DDDD_1111_AAAA_5555_CCCC_3333")
+  in
+  let invalid_dst_mac_udp_packet =
     create_packet_from_host (of_string "128'hBBBB_4444_DDDD_1111_AAAA_5555_CCCC_3333")
   in
-  let packets = [ udp_packet_1; non_udp_packet; udp_packet_2; udp_packet_3 ] in
+  let packets =
+    [ udp_packet_1
+    ; non_udp_packet
+    ; udp_packet_2
+    ; udp_packet_3
+    ; invalid_dst_mac_udp_packet
+    ]
+  in
   inputs.clocking.clear := vdd;
   Cyclesim.cycle sim;
   inputs.clocking.clear := gnd;
@@ -111,7 +134,7 @@ let%expect_test "test_only_udp_packet_data_is_decoded" =
     {|
     (result
      ((32'haaaaaaaa) () (32'hf0f0f0f0 32'hf0f00000)
-      (32'hbbbb4444 32'hdddd1111 32'haaaa5555 32'hcccc3333)))
+      (32'hbbbb4444 32'hdddd1111 32'haaaa5555 32'hcccc3333) ()))
     |}]
 ;;
 
@@ -121,6 +144,6 @@ let%expect_test "test_only_udp_packet_data_is_decoded_with_data_gaps" =
     {|
     (result
      ((32'haaaaaaaa) () (32'hf0f0f0f0 32'hf0f00000)
-      (32'hbbbb4444 32'hdddd1111 32'haaaa5555 32'hcccc3333)))
+      (32'hbbbb4444 32'hdddd1111 32'haaaa5555 32'hcccc3333) ()))
     |}]
 ;;

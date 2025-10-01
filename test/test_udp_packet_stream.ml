@@ -93,8 +93,11 @@ let sim_packet
         sel_top (Packet.Of_bits.pack ~rev:true loopback_packet) ~width:packet_width)
       else packet_vector
     in
-    [%test_result: Bits.Hex.t] (concat_lsb !output_data) ~expect:expected_packet)
-  else [%test_result: bool] (List.is_empty !output_data) ~expect:true
+    [%test_result: Bits.Hex.t] (concat_lsb !output_data) ~expect:expected_packet;
+    print_string "Packet received; ")
+  else (
+    [%test_result: bool] (List.is_empty !output_data) ~expect:true;
+    print_string "No packet received; ")
 ;;
 
 let test_udp_packet_stream_waves
@@ -117,21 +120,18 @@ let test_udp_packet_stream_waves
   let inputs = Cyclesim.inputs sim in
   let outputs = Cyclesim.outputs sim in
   let valid_dst_mac = random ~width:Ethernet_header.port_widths.dst_mac in
-  let udp_packet_1 =
-    create_packet_from_host ~dst_mac:valid_dst_mac (of_string "32'hAAAA_AAAA")
-  in
+  let config = { get_config with fpga_mac = valid_dst_mac } in
+  let udp_packet_1 = create_packet_from_host ~config (of_string "32'hAAAA_AAAA") in
   let non_udp_packet =
     create_packet_from_host
-      ~dst_mac:valid_dst_mac
+      ~config
       ~protocol:(of_int_trunc ~width:Ipv4.port_widths.protocol tcp_protocol)
       (of_string "32'hAAAA_AAAA")
   in
-  let udp_packet_2 =
-    create_packet_from_host ~dst_mac:valid_dst_mac (of_string "48'hF0F0_F0F0_F0F0")
-  in
+  let udp_packet_2 = create_packet_from_host ~config (of_string "48'hF0F0_F0F0_F0F0") in
   let udp_packet_3 =
     create_packet_from_host
-      ~dst_mac:valid_dst_mac
+      ~config
       (of_string "128'hBBBB_4444_DDDD_1111_AAAA_5555_CCCC_3333")
   in
   let udp_packet_with_invalid_dst_mac =
@@ -139,7 +139,7 @@ let test_udp_packet_stream_waves
   in
   let udp_packet_4 =
     create_packet_from_host
-      ~dst_mac:valid_dst_mac
+      ~config
       (of_string "128'hBBBB_4444_DDDD_1111_AAAA_5555_CCCC_3333")
   in
   let packets =
@@ -174,17 +174,25 @@ let expect_udp_packet_stream_waves
 
 let%expect_test "test_only_udp_packet_data_is_decoded" =
   let waves = expect_udp_packet_stream_waves () in
-  ignore waves
+  ignore waves;
+  [%expect
+    {| Packet received; No packet received; Packet received; Packet received; No packet received; Packet received; |}]
 ;;
 
 let%expect_test "test_only_udp_packet_data_is_decoded_with_gaps" =
-  expect_udp_packet_stream_waves ~with_data_gaps:true ~strip_fcs_and_swap_address:false ()
+  expect_udp_packet_stream_waves ~with_data_gaps:true ~strip_fcs_and_swap_address:false ();
+  [%expect
+    {| Packet received; No packet received; Packet received; Packet received; No packet received; Packet received; |}]
 ;;
 
 let%expect_test "test_only_udp_packet_data_is_decoded_and_swapped" =
-  expect_udp_packet_stream_waves ~with_data_gaps:false ~strip_fcs_and_swap_address:true ()
+  expect_udp_packet_stream_waves ~with_data_gaps:false ~strip_fcs_and_swap_address:true ();
+  [%expect
+    {| Packet received; No packet received; Packet received; Packet received; No packet received; Packet received; |}]
 ;;
 
 let%expect_test "test_only_udp_packet_data_is_decoded_and_swapped_with_gaps" =
-  expect_udp_packet_stream_waves ~with_data_gaps:true ~strip_fcs_and_swap_address:true ()
+  expect_udp_packet_stream_waves ~with_data_gaps:true ~strip_fcs_and_swap_address:true ();
+  [%expect
+    {| Packet received; No packet received; Packet received; Packet received; No packet received; Packet received; |}]
 ;;

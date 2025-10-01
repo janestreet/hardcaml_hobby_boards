@@ -33,32 +33,37 @@ module type Ethernet = sig
   end
 
   module Tx : sig
-    module I : sig
-      type 'a t =
-        { clocking : 'a Types.Clocking.t
-        ; data_stream : 'a Axi32.Source.t
-        }
-      [@@deriving hardcaml]
+    module Make (M : sig
+        val max_packets : int
+        val average_packet_size : int
+      end) : sig
+      module I : sig
+        type 'a t =
+          { clocking : 'a Types.Clocking.t
+          ; data_stream : 'a Axi32.Source.t
+          }
+        [@@deriving hardcaml]
+      end
+
+      module O : sig
+        type 'a t =
+          { txen : 'a (* Signal that is asserted when the data present on txd is valid*)
+          ; txd : 'a (* 2-bit wide data signal *)
+          ; ready : 'a Axi32.Dest.t
+          (* Axi ready signal that is asserted when the ethernet TX FIFO is not full *)
+          }
+        [@@deriving hardcaml]
+      end
+
+      val crc_polynomial_802_3 : Bits.t
+
+      module Make_comb (C : Comb.S) : sig
+        val update_bit : polynomial:Bits.t -> crc:C.t -> C.t -> C.t
+        val update_bits : polynomial:Bits.t -> crc:C.t -> C.t -> C.t
+      end
+
+      val create : Scope.t -> Interface.Create_fn(I)(O).t
+      val hierarchical : ?instance:string -> Scope.t -> Interface.Create_fn(I)(O).t
     end
-
-    module O : sig
-      type 'a t =
-        { txen : 'a (* Signal that is asserted when the data present on txd is valid*)
-        ; txd : 'a (* 2-bit wide data signal *)
-        ; ready : 'a Axi32.Dest.t
-        (* Axi ready signal that is asserted when the ethernet TX FIFO is not full *)
-        }
-      [@@deriving hardcaml]
-    end
-
-    val crc_polynomial_802_3 : Bits.t
-
-    module Make_comb (C : Comb.S) : sig
-      val update_bit : polynomial:Bits.t -> crc:C.t -> C.t -> C.t
-      val update_bits : polynomial:Bits.t -> crc:C.t -> C.t -> C.t
-    end
-
-    val create : Scope.t -> Interface.Create_fn(I)(O).t
-    val hierarchical : ?instance:string -> Scope.t -> Interface.Create_fn(I)(O).t
   end
 end

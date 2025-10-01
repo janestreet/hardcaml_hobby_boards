@@ -86,10 +86,18 @@ let ethernet_tx =
   Command.basic
     ~summary:""
     [%map_open.Command
-      let data_bits = flag "-data-bits" (optional_with_default (50 * 8) int) ~doc:"" in
+      let data_bits = flag "-data-bits" (optional_with_default (50 * 8) int) ~doc:""
+      and with_data_gaps =
+        flag
+          "-with-data-gaps"
+          (optional_with_default false bool)
+          ~doc:"Enable a random number (10-30) cycle gap between each data valid"
+      in
       let data_lengths = [ data_bits ] in
       fun () ->
-        Hardcaml_hobby_boards_test.Test_ethernet.test_tx_waves data_lengths
+        Hardcaml_hobby_boards_test.Test_ethernet.test_tx_waves
+          data_lengths
+          ~with_data_gaps
         |> Hardcaml_waveterm_interactive.run]
 ;;
 

@@ -89,7 +89,6 @@ module For_testing : sig
   val create_packet_from_host
     :  ?config:Bits.t Udp_packet_generator.Config.t
     -> ?protocol:Bits.t
-    -> ?dst_mac:Bits.t
     -> Bits.t
     -> Bits.t Packet.t
 
@@ -102,6 +101,7 @@ module For_testing : sig
     :  output_data:Bits.t list
     -> expected_data:Bits.t
     -> ?rx_error:bool
+    -> ?print_data_as_string:bool
     -> unit
     -> unit
 
@@ -110,6 +110,15 @@ module For_testing : sig
     -> packet:Bits.t Packet.t
     -> loopback:bool
     -> ?rx_error:bool
+    -> ?print_data_as_string:bool
     -> unit
+    -> unit
+
+  val sim_preamble_sfd : ('a, 'b) Cyclesim.t -> Bits.t ref Ethernet.Rx.I.t -> unit
+
+  val sim_packet
+    :  ('a, 'b) Cyclesim.t
+    -> packet:string
+    -> Bits.t ref Ethernet.Rx.I.t
     -> unit
 end

@@ -32,6 +32,9 @@ let nexys_a7_100t =
       , nexys_a7_100t Hardcaml_hobby_boards_demos_nexys_a7_100t.Ethernet_rx.create )
     ; ( "ethernet-tx"
       , nexys_a7_100t Hardcaml_hobby_boards_demos_nexys_a7_100t.Ethernet_tx.create )
+    ; "risc-v", nexys_a7_100t Hardcaml_hobby_boards_demos_nexys_a7_100t.Risc_v.create
+    ; ( "risc-v-ethernet"
+      , nexys_a7_100t Hardcaml_hobby_boards_demos_nexys_a7_100t.Risc_v_ethernet.create )
     ; "snakes", nexys_a7_100t Hardcaml_hobby_boards_demos_nexys_a7_100t.Snakes.create
     ; "uart", nexys_a7_100t Hardcaml_hobby_boards_demos_nexys_a7_100t.Uart.create
     ; "vga", nexys_a7_100t Hardcaml_hobby_boards_demos_nexys_a7_100t.Vga.create
